@@ -237,7 +237,13 @@ class Individual:
                         added. This gives the finalposition, which is a combination of the oscillatory movement defined 
                         by the sine wave and the static offset.This approach allows for smooth and periodic movements, 
                         which are essential for natural-looking gait patterns in humanoid robots like NAO.'''
-                position = (self.amplitude[0][current_activation][i] * math.sin(2.0 * math.pi * f * time + self.phase[0][current_activation][i]) + self.offset[0][current_activation][i])
+                
+                position = (self.amplitude[0][current_activation][i]
+                            * 
+                            math.sin(2.0 * math.pi * f * time + self.phase[0][current_activation][i])
+                            + 
+                            self.offset[0][current_activation][i])
+
                 motor_name = motor.getName()
                 if motor_name in JOINT_LIMITS: # value clamping based on joint limits
                     min_limit, max_limit = JOINT_LIMITS[motor_name]

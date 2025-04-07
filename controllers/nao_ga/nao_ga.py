@@ -4,6 +4,7 @@ import random
 import pickle
 import os
 import csv
+import cma
 
 
 # Constants

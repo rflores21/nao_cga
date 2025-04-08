@@ -293,15 +293,29 @@ def main():
     with open(csv_file_name, mode='a', newline='') as csv_file:
         csv_writer = csv.writer(csv_file)
 
+        # CMA-ES initialization
+        initial_params = [0.25] * PARAMS * 3  # Initial guess for amplitude, phase, and offset
+        sigma = 0.5  # Initial standard deviation
+        es = cma.CMAEvolutionStrategy(initial_params, sigma)
+
         while gens_per_run > 0:
             print(f"Generation {generation}")
 
-            for individual_index in range(POPULATION_SIZE):
-                individual = populations[individual_index]
+            solutions = es.ask()
+            fitnesses = []
+
+            for individual_index, solution in enumerate(solutions):
+                individual = {
+                    "amplitude": solution[:PARAMS],
+                    "phase": solution[PARAMS:2*PARAMS],
+                    "offset": solution[2*PARAMS:],
+                    "fitness": 0.0
+                }
 
                 # Evaluate individuals
                 print(f"Evaluating individual {individual_index} in generation {generation}")
-                individual["fitness"] = evaluate(individual)
+                fitness = evaluate(individual)
+                fitnesses.append(fitness)
                 reset_robot()
 
                 # Log individual fitness/info to file
@@ -309,20 +323,20 @@ def main():
                     n2 + 1,  # Run number
                     generation,  # Current generation
                     individual_index,  # Individual index
-                    individual['fitness'],  # Fitness
+                    fitness,  # Fitness
                     individual['amplitude'],  # Amplitude list
                     individual['phase'],  # Phase list
                     individual['offset']  # Offset list
                 ])
 
                 # Update the best individual
-                if individual['fitness'] > best_individuals['fitness']:
+                if fitness > best_individuals['fitness']:
                     best_individuals = individual
                     if best_individuals['fitness'] > best_overall['fitness']:
                         best_overall = best_individuals
 
-            # Evolve the population
-            populations = evolve_population(populations)
+            es.tell(solutions, fitnesses)
+            es.disp()
 
             with open(best_fitnesses_file, "w") as file:
                 print(f"\n--- Best Individual ---")

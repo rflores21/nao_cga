@@ -365,6 +365,12 @@ def main():
             print("Resetting Webots environment...")
             robot.worldReload()
 
+    # Print the best generation and its fitness
+    print(f"\nBest Generation: {generation - 1}")
+    print(f"Best Fitness: {best_overall['fitness']:.3f}")
+    print(f"Best Amplitude: {best_overall['amplitude']}")
+    print(f"Best Phase: {best_overall['phase']}")
+    print(f"Best Offset: {best_overall['offset']}")
 
 if __name__ == "__main__":
     main()

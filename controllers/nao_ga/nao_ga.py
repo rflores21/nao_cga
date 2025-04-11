@@ -1,6 +1,11 @@
 from controller import Robot, GPS, Supervisor
 import math
 import random
+import pickle
+import os
+import csv
+import cma
+
 
 # Constants
 NUM_GENERATIONS = 15
@@ -71,7 +76,79 @@ def create_individual():
 def clamp(value, min_value, max_value):
     return max(min(value, max_value), min_value)
 
+#Loads the state of the GA from a file
+def load_state(filename):
+    with open(filename, 'rb') as file:
+        state = pickle.load(file)
+    print(f"State loaded from {filename}")
+    return state['populations'], state['best_individuals'], state['best_overall'], state['generation']
 
+#Saves the state of the GA to a file
+def save_state(filename, populations, best_individuals, best_overall, generation):
+    state = {
+        'populations': populations,
+        'best_individuals': best_individuals,
+        'best_overall': best_overall,
+        'generation': generation
+    }
+    with open(filename, 'wb') as file:
+        pickle.dump(state, file)
+    print(f"State saved to {filename}")
+    
+#gets the latest checkpoint file
+def get_latest_checkpoint():
+    saves_directory = "saves"  # Define the directory where saves are stored
+    base_name = "run_"
+    gen_base = "_generation"
+    ext = ""  # No extension since your checkpoints don't have one
+    latest_n = 0
+    latest_m = 0
+    latest_checkpoint = None
+
+    # Ensure the directory exists to avoid FileNotFoundError
+    if not os.path.exists(saves_directory):
+        print("No saves directory found.")
+        return None, 0
+
+    # Iterate through files in the saves directory
+    for filename in os.listdir(saves_directory):
+        if filename.startswith(base_name) and gen_base in filename:
+            try:
+                # Extract n and m from the filename
+                n_part = filename[len(base_name):filename.index(gen_base)]
+                m_part = filename[filename.index(gen_base) + len(gen_base):]
+                n = int(n_part)
+                m = int(m_part)
+
+                # Update if this file is more recent
+                if n > latest_n or (n == latest_n and m > latest_m):
+                    latest_n = n
+                    latest_m = m
+                    latest_checkpoint = os.path.join(saves_directory, filename)  # Include the path to the file
+
+            except ValueError:
+                # Ignore files that don't match the expected pattern
+                continue
+
+    print(f"Latest checkpoint: {latest_checkpoint}")
+    return latest_checkpoint, latest_n
+
+# Function to get the next best fitnesses file
+def get_next_best_fitnesses_file():
+    base_directory = "best_fitnesses"
+    base_name = "best_fitnesses_run_"
+    ext = ".txt"
+    n1 = 1
+    
+    # Ensure the directory exists
+    if not os.path.exists(base_directory):
+        os.makedirs(base_directory)
+    
+    # Generate file name with incremental number
+    while os.path.exists(os.path.join(base_directory, f"{base_name}{n1}{ext}")):
+        n1 += 1
+    return (os.path.join(base_directory, f"{base_name}{n1}{ext}")), n1
+    
 # Function to reset the robot to the initial state
 def reset_robot():
     for motor in motors: # Reset motor positions
@@ -165,16 +242,135 @@ def evolve_population(population):
 
 # Main Evolution Loop
 def main():
-    population = [create_individual() for _ in range(POPULATION_SIZE)]
-    for gen in range(NUM_GENERATIONS):
-        print(f"############## Generation {gen} ##############")
-        for i, individual in enumerate(population):
-            print("  Individual", i)
-            individual["fitness"] = evaluate(individual)
-            reset_robot()
-            print(f"    Fitness: {individual['fitness']:.3f}")
-        population = evolve_population(population)
+    best_fitnesses_file, n1 = get_next_best_fitnesses_file()
+    gens_per_run = 1  # 1 generation per run to avoid deterioration
 
+    load_checkpoint, n2 = get_latest_checkpoint()
+    # load_checkpoint = None # Set to None if starting fresh
+
+    # Initialize state
+    if load_checkpoint:
+        try:
+            populations, best_individuals, best_overall, generation = load_state(load_checkpoint)
+            generation += 1
+            print(f"Loaded state from {load_checkpoint}: Resuming from generation {generation}")
+        except FileNotFoundError:
+            print(f"Error: File '{load_checkpoint}' not found.")
+            exit(1)
+        except Exception as e:
+            print(f"Error loading file '{load_checkpoint}': {e}")
+            exit(1)
+    else:
+        populations = [create_individual() for _ in range(POPULATION_SIZE)]
+        best_individuals = create_individual()  # Initial random best individual (So robot can walk)
+        best_overall = best_individuals
+        generation = 0  # First gen
+
+    saves_directory = "saves"
+    checkpoint_file = os.path.join(saves_directory, f"run_{n2+1}_generation{generation}")  # Checkpoint organized by run and generation
+
+    # Ensure the saves directory exists
+    if not os.path.exists(saves_directory):
+        os.makedirs(saves_directory)
+
+    # Define the directory for the data
+    data_directory = "data"
+    csv_file_name = os.path.join(data_directory, "evolution_data.csv")
+
+    print(f"Progress will be saved to: {checkpoint_file}, data will be saved to: {csv_file_name}")
+
+    # Check if the directory exists, and create it if it does not
+    if not os.path.exists(data_directory):
+        os.makedirs(data_directory)
+
+    # Ensure CSV file has a header if it doesn't exist
+    if not os.path.exists(csv_file_name):
+        with open(csv_file_name, mode='w', newline='') as csv_file:
+            csv_writer = csv.writer(csv_file)
+            # Write the header row
+            csv_writer.writerow(['Run', 'Generation', 'Individual Index', 'Fitness', 'Amplitude', 'Phase', 'Offset'])
+
+    with open(csv_file_name, mode='a', newline='') as csv_file:
+        csv_writer = csv.writer(csv_file)
+
+        # CMA-ES initialization
+        initial_params = [0.25] * PARAMS * 3  # Initial guess for amplitude, phase, and offset
+        sigma = 0.5  # Initial standard deviation
+        es = cma.CMAEvolutionStrategy(initial_params, sigma)
+
+        while gens_per_run > 0:
+            print(f"Generation {generation}")
+
+            solutions = es.ask()
+            fitnesses = []
+
+            for individual_index, solution in enumerate(solutions):
+                individual = {
+                    "amplitude": solution[:PARAMS],
+                    "phase": solution[PARAMS:2*PARAMS],
+                    "offset": solution[2*PARAMS:],
+                    "fitness": 0.0
+                }
+
+                # Evaluate individuals
+                print(f"Evaluating individual {individual_index} in generation {generation}")
+                fitness = evaluate(individual)
+                fitnesses.append(fitness)
+                reset_robot()
+
+                # Log individual fitness/info to file
+                csv_writer.writerow([
+                    n2 + 1,  # Run number
+                    generation,  # Current generation
+                    individual_index,  # Individual index
+                    fitness,  # Fitness
+                    individual['amplitude'],  # Amplitude list
+                    individual['phase'],  # Phase list
+                    individual['offset']  # Offset list
+                ])
+
+                # Update the best individual
+                if fitness > best_individuals['fitness']:
+                    best_individuals = individual
+                    if best_individuals['fitness'] > best_overall['fitness']:
+                        best_overall = best_individuals
+
+            es.tell(solutions, fitnesses)
+            es.disp()
+
+            with open(best_fitnesses_file, "w") as file:
+                print(f"\n--- Best Individual ---")
+                print(f"Fitness: {best_individuals['fitness']:.3f}")
+                print(f"Amplitude: {best_individuals['amplitude']}")
+                print(f"Phase: {best_individuals['phase']}")
+                print(f"Offset: {best_individuals['offset']}")
+                print("------------------------------------------")
+
+                file.write(f"Generation {generation}, Best Fitness: {best_individuals['fitness']:.3f}, "
+                           f"Amplitude: {best_individuals['amplitude']}, "
+                           f"Phase: {best_individuals['phase']}, "
+                           f"Offset: {best_individuals['offset']}\n"
+                           f"-------------------------------------\n"
+                           f"Generation {generation}, Best Overall: {best_overall['fitness']:.3f}, "
+                           f"Amplitude: {best_overall['amplitude']}, "
+                           f"Phase: {best_overall['phase']}, "
+                           f"Offset: {best_overall['offset']}\n"
+                           f"-------------------------------------\n")
+                file.flush()
+
+            save_state(checkpoint_file, populations, best_individuals, best_overall, generation)  # Make a checkpoint
+
+            generation += 1
+            gens_per_run -= 1
+            print("Resetting Webots environment...")
+            robot.worldReload()
+
+    # Print the best generation and its fitness
+    print(f"\nBest Generation: {generation - 1}")
+    print(f"Best Fitness: {best_overall['fitness']:.3f}")
+    print(f"Best Amplitude: {best_overall['amplitude']}")
+    print(f"Best Phase: {best_overall['phase']}")
+    print(f"Best Offset: {best_overall['offset']}")
 
 if __name__ == "__main__":
     main()

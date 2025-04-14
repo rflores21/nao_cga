@@ -8,19 +8,17 @@ import scienceplots
 from scipy.optimize import curve_fit
 import json
 
-def plot(FILE_NAME, Y_LABEL="Total Fitness", Y_LIM=(10, 85), X_LIM=(0, 56), LINE_LABEL="Total Fitness", Y_TICKS = np.arange(0, 201, 20), plot_sigmoid=True, baseline=None):
+def plot(FILE_NAME, Y_LABEL="Total Fitness", Y_LIM=(10, 85), X_LIM=(0, 56), LINE_LABEL="Total Fitness", Y_TICKS=np.arange(0, 201, 20), plot_sigmoid=True, baseline=None):
     DPI = 800
     RESULT_FOLDER = "RESULT_PLOTS"
     PATH = "data"
     CSV_PATH = os.path.join(PATH, FILE_NAME)
-
 
     def create_result_folder(folder_name=RESULT_FOLDER):
         """Ensure the result folder exists."""
         if not os.path.exists(folder_name):
             os.makedirs(folder_name)
         return folder_name
-
 
     def save_plot_to_folder(file_name, folder_name=RESULT_FOLDER):
         """Save the plot to a folder."""
@@ -40,7 +38,11 @@ def plot(FILE_NAME, Y_LABEL="Total Fitness", Y_LIM=(10, 85), X_LIM=(0, 56), LINE
         csv_reader = csv.reader(file)
         next(csv_reader)  # Skip the header row
         for row in csv_reader:
-            all_generations.append(int(row[1]))
+            generation = int(row[1])
+            individual = int(row[2])  # Individual index
+            if generation == 230 or (generation == 495 and individual == 12) or (generation ==22 and individual == 12):  # Exclude generation 230 and individual 12 of generation 496
+                continue
+            all_generations.append(generation)
             fitness_values.append(float(row[3]))
 
     # Compute percentiles
@@ -50,8 +52,6 @@ def plot(FILE_NAME, Y_LABEL="Total Fitness", Y_LIM=(10, 85), X_LIM=(0, 56), LINE
     percentile_75 = np.percentile(fitness_values, 75)
 
     # ------------------- PLOT -------------------
-    # plt.style.use(['science', 'ieee'])
-    # plt.style.use(['science', 'ieee', 'no-latex'])
     plt.style.use(['science', 'no-latex'])
 
     plt.figure(dpi=DPI)
@@ -61,17 +61,12 @@ def plot(FILE_NAME, Y_LABEL="Total Fitness", Y_LIM=(10, 85), X_LIM=(0, 56), LINE
     # Plot sigmoid function
     if plot_sigmoid:
 
-        def sigmoid(x, L ,x0, k, b):
-            y = L / (1 + np.exp(-k*(x-x0))) + b
-            return (y)
+        def sigmoid(x, L, x0, k, b):
+            y = L / (1 + np.exp(-k * (x - x0))) + b
+            return y
 
         # Initial guess for the parameters [L, x0, k, b]
-        # L: maximum value of the sigmoid curve
-        # x0: the value of the sigmoid's midpoint
-        # k: the steepness of the curve
-        # b: the minimum value of the sigmoid curve
         p0 = [max(fitness_values), np.median(all_generations), 1, min(fitness_values)]
-        # p0 = [115, 0, 0.2, -40]
 
         popt, pcov = curve_fit(sigmoid, all_generations, fitness_values, p0, method='lm')
 
@@ -80,48 +75,15 @@ def plot(FILE_NAME, Y_LABEL="Total Fitness", Y_LIM=(10, 85), X_LIM=(0, 56), LINE
         plt.plot(x, y, label="Best Fit Curve", color='black', linestyle='dotted')
 
     if baseline:
-        # add a horizontal line equal to the value of baseline
+        # Add a horizontal line equal to the value of baseline
         plt.axhline(y=baseline, color='orange', linestyle='-', label="Baseline")
-
-    # x = np.linspace(0, 56, 2*57)
-    # # print(x)
-    # L = 115
-    # x0 = 0
-    # k = 0.2
-    # b = -40
-
-
-    # y = L / (1 + np.exp(-k*(x-x0))) + b
-    # # print(y)
-    # plt.plot(x, y, label="Sigmoid Function", color='green', linestyle='dashed')
-
-    
-
-    # plt.plot(all_generations,
-    #          [percentile_50] * len(all_generations),
-    #          color='black',
-    #          label="Median Fitness")
-
-    # plt.fill_between(all_generations,
-    #                  [percentile_25] * len(all_generations),
-    #                  [percentile_75] * len(all_generations),
-    #                  color='gray',
-    #                  alpha=0.4,
-    #                  label="25th-75th Percentile")
 
     # Enhancing plot aesthetics
     plt.xlabel("Generation")
     plt.ylabel(Y_LABEL)
-    # plt.yticks(Y_TICKS)
     plt.ylim(Y_LIM)
 
-    major_ticks = [1, 10, 20, 30, 40, 50, 60]
-    minor_ticks = [1] + list(range(2, 56, 2))
-
-    ax = plt.gca()  # Get current axis
-    # ax.set_xticks(major_ticks)  # Set major ticks
     plt.xlim(X_LIM)
-    # ax.set_xticks(minor_ticks, minor=True)  # Set minor ticks explicitly
 
     plt.legend(loc='center right')
 
@@ -175,7 +137,7 @@ def get_average_random_fitness():
 if __name__ == "__main__":
     # 590 generations
     # y value is from 0 to 3
-    plot("evolution_data.csv", Y_LIM=(0, 100), X_LIM=(0, 590), LINE_LABEL="Fitness", plot_sigmoid=False)
+    plot("evolution_data.csv", Y_LIM=(0, 5), X_LIM=(0, 590), LINE_LABEL="Fitness", plot_sigmoid=False)
     # plot("evolution_data.csv", plot_sigmoid=False)
     exit()
     
